@@ -1,47 +1,21 @@
-# Usage Display Plugin
+# Usage Display 维护说明
 
-在 Claude Code 终端中显示用量信息。**专为 Pro 用户设计，无需 API key**。
+这个项目用于在 Claude Code 中显示状态栏用量信息。对外使用说明以 `README.md` 为准。
 
-## 功能
+## 主要入口
 
-- 会话开始时显示当前用量（只调用一次）
-- 读取本地 `~/.claude/stats-cache.json`（Claude Code 自动维护）
-- 支持 `SessionStart` hook，每次启动显示一次
+- `claude_quota.py`：唯一运行入口，用作 Claude Code `statusLine` 命令。
 
-## 工作原理
-
-Claude Code 内部已追踪所有用量数据到 `~/.claude/stats-cache.json`：
-- 总消息数、会话数
-- 各模型 token 用量（Sonnet、Opus、Haiku 等）
-- 无需 API key，Pro 用户直接可用
-
-## 配置状态
-
-`~/.claude/settings.json` 已配置 `SessionStart` hook：
-
-```json
-{
-  "hooks": {
-    "SessionStart": [{
-      "matcher": "*",
-      "hooks": [{
-        "type": "command",
-        "command": "bash /home/phi5090ii/NYX/vibe_coding/usage-display/scripts/show-usage.sh",
-        "timeout": 15
-      }]
-    }]
-  }
-}
-```
-
-## 手动测试
+## 本地验证
 
 ```bash
-bash /home/phi5090ii/NYX/vibe_coding/usage-display/scripts/show-usage.sh
+python3 -m py_compile claude_quota.py
+printf '%s\n' '{"model":{"display_name":"Claude Sonnet"},"workspace":{"current_dir":"/tmp/demo"},"context_window":{"used_percentage":36},"cost":{"total_cost_usd":0.12}}' \
+  | python3 claude_quota.py --model --dir --context --cost
 ```
 
-## 注意
+## 维护注意事项
 
-- 显示位置由 Claude Code 决定（session start 时输出）
-- Claude Code 没有"每次对话后"的 hook，所以无法做到实时刷新
-- 用量数据由 Claude Code 本地缓存提供，可能有几分钟延迟
+- 不要提交 Claude OAuth 凭据、API token、`.env` 文件或本地缓存。
+- `claude_quota.py` 不依赖第三方 Python 包，保持这个约束可以降低安装成本。
+- 如果修改输出字段，同步更新 `README.md` 的参数说明和示例输出。

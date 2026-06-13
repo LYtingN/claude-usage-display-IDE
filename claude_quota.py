@@ -35,7 +35,7 @@ import os
 import sys
 import time
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
@@ -55,8 +55,6 @@ CREDENTIALS_FILE = os.path.join(CONFIG_DIR, ".credentials.json")
 CACHE_FILE = os.path.join(CONFIG_DIR, "usage_cache.json")
 CACHE_TTL_SECONDS = 60
 
-FILL = "\u2588"
-EMPTY = "\u2591"
 DIM = "\033[2m"
 RESET = "\033[0m"
 CYAN = "\033[36m"
@@ -111,12 +109,14 @@ def save_cache(data):
 
 def get_usage():
     cache = load_cache()
-    if cache and (time.time() - cache["timestamp"]) < CACHE_TTL_SECONDS:
-        return cache["data"]
+    if cache:
+        timestamp = cache.get("timestamp", 0)
+        if (time.time() - timestamp) < CACHE_TTL_SECONDS:
+            return cache.get("data")
 
     access_token = get_access_token()
     if not access_token:
-        return cache["data"] if cache else None
+        return cache.get("data") if cache else None
 
     data = fetch_usage(access_token)
     if data and "five_hour" in data:
@@ -126,12 +126,16 @@ def get_usage():
     # Fetch failed (rate limit, network error, etc.) — update cache timestamp
     # so we back off instead of retrying every statusline refresh
     if cache:
-        save_cache(cache["data"])
-        return cache["data"]
+        data = cache.get("data")
+        if data:
+            save_cache(data)
+        return data
     return None
 
 
 def format_reset_time(resets_at_str):
+    if not resets_at_str:
+        return None
     try:
         resets_at = datetime.fromisoformat(resets_at_str)
         local_time = resets_at.astimezone()
@@ -172,21 +176,6 @@ def render_braille_bar(pct, width=5):
     return f"{GRAY}[{RESET}{color}{filled_part}{GRAY}]{RESET}"
 
 
-def render_bar(pct, width=10):
-    pct = max(0, min(100, pct))
-    filled = round(pct / 100 * width)
-    empty = width - filled
-
-    if pct >= 80:
-        color = RED
-    elif pct >= 50:
-        color = YELLOW
-    else:
-        color = GREEN
-
-    return f"{color}{FILL * filled}{DIM}{EMPTY * empty}{RESET}"
-
-
 def parse_flags():
     args = set(sys.argv[1:])
     all_flags = {"--model", "--dir", "--context", "--cost", "--quota", "--reset"}
@@ -195,16 +184,32 @@ def parse_flags():
         defaults = {f: True for f in all_flags}
         defaults["--cost"] = False
         return defaults
-    return {f: f in specified for f in all_flags}
+    flags = {f: f in specified for f in all_flags}
+    if flags["--reset"]:
+        flags["--quota"] = True
+    return flags
+
+
+def read_session():
+    if sys.stdin.isatty():
+        return {}
+    try:
+        return json.load(sys.stdin)
+    except Exception:
+        return {}
+
+
+def get_reset_timestamp(five_hour_usage):
+    for key in ("resets_at", "reset_at", "reset_time", "next_reset_at"):
+        value = five_hour_usage.get(key)
+        if value:
+            return value
+    return None
 
 
 def main():
     flags = parse_flags()
-
-    try:
-        session = json.load(sys.stdin)
-    except Exception:
-        session = {}
+    session = read_session()
 
     segments = []
 
@@ -235,15 +240,20 @@ def main():
 
     if flags["--quota"]:
         usage = get_usage()
-        five_h = usage.get("five_hour", {}).get("utilization") if usage else None
+        five_hour_usage = usage.get("five_hour", {}) if usage else {}
+        five_h = five_hour_usage.get("utilization")
         seven_d = usage.get("seven_day", {}).get("utilization") if usage else None
-        parts = []
         if five_h is not None:
-            parts.append(f"5h used: {five_h:.0f}%")
+            segments.append(f"5h used: {five_h:.0f}%")
         if seven_d is not None:
-            parts.append(f"weekly used: {seven_d:.0f}%")
-        if parts:
-            print(" | ".join(parts))
+            segments.append(f"weekly used: {seven_d:.0f}%")
+        if flags["--reset"]:
+            reset_time = format_reset_time(get_reset_timestamp(five_hour_usage))
+            if reset_time:
+                segments.append(f"resets {reset_time}")
+
+    if segments:
+        print(" | ".join(segments))
 
 
 if __name__ == "__main__":

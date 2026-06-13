@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+.DS_Store
+
+# Local Claude credentials and caches. These should never be committed.
+.claude/
+usage_cache.json
+.credentials.json
+
+# Local environment files.
+.env
+.env.*
+!.env.example
