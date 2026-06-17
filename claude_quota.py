@@ -32,6 +32,7 @@ Examples:
 import io
 import json
 import os
+import subprocess
 import sys
 import time
 import urllib.request
@@ -66,13 +67,40 @@ GRAY = "\033[90m"
 
 # --- OAuth usage API ---
 
+def _token_from_creds(creds):
+    if isinstance(creds, dict):
+        return creds.get("claudeAiOauth", {}).get("accessToken")
+    return None
+
+
+def get_token_from_keychain():
+    """On macOS, Claude Code stores OAuth creds in the login keychain
+    (service "Claude Code-credentials"), not in a file."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        out = subprocess.run(
+            ["security", "find-generic-password",
+             "-s", "Claude Code-credentials", "-w"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return _token_from_creds(json.loads(out.stdout))
+    except Exception:
+        pass
+    return None
+
+
 def get_access_token():
     try:
         with open(CREDENTIALS_FILE, "r") as f:
             creds = json.load(f)
-        return creds.get("claudeAiOauth", {}).get("accessToken")
+        token = _token_from_creds(creds)
+        if token:
+            return token
     except (FileNotFoundError, json.JSONDecodeError):
-        return None
+        pass
+    return get_token_from_keychain()
 
 
 def fetch_usage(access_token):
@@ -231,7 +259,8 @@ def main():
             bar = render_braille_bar(pct)
             segments.append(f"{CYAN}ctx{RESET} {bar} {DIM}{pct}%{RESET}")
         elif session:
-            segments.append(f"{CYAN}ctx{RESET} {DIM}{'\u2800' * 5} no data yet{RESET}")
+            blank_bar = "\u2800" * 5
+            segments.append(f"{CYAN}ctx{RESET} {DIM}{blank_bar} no data yet{RESET}")
 
     if flags["--cost"]:
         cost = session.get("cost", {}).get("total_cost_usd")
